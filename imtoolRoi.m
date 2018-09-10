@@ -1,4 +1,4 @@
-function [hFig] = imtoolRoi(data, outputVariableName)
+function [hFig] = imtoolRoi(input, outputVariableName)
 % imtoolRoi imtool extended to 3rd dimension and ROI functionalities.
 %   hFig = imtoolRoi(data, outputVariableName)
 %
@@ -25,32 +25,34 @@ function [hFig] = imtoolRoi(data, outputVariableName)
 %
 %   See also imtool
 
+if isstruct(input)
+    userData = input;
+    data = userData.data;
+else
+    userData.data = input;
+    userData.currentImage = 1;
+
+    userData.contours.endo = cell(1,userData.nImages);
+    userData.contours.epi = cell(1,userData.nImages);
+    userData.contoursInterp.endo = cell(1,userData.nImages);
+    userData.contoursInterp.epi = cell(1,userData.nImages);
+
+    userData.nPontsInterp = 25;
+end
 
 hFig = imtool(data(:,:,1),[]);
-userData.hFig = hFig;
-userData.data = data;
-userData.outputVariableName = outputVariableName;
-userData.currentImage = 1;
+
+userData.hFig = hFig;  
 userData.nImages = size(data,3);
 userData.hImage = findobj(userData.hFig,'Type','image');
 userData.hAxes = findobj(userData.hFig,'Type','axes');
 userData.hEndo = [];
 userData.hEpi = [];
+userData.hImPoly = [];
 userData.hText = text(userData.hAxes, 1, 1, '', 'Color', 'red','verticalalignment', 'top', 'horizontalalignment','left');
-
-userData.contours.endo = cell(1,userData.nImages);
-userData.contours.epi = cell(1,userData.nImages);
-userData.contoursInterp.endo = cell(1,userData.nImages);
-userData.contoursInterp.epi = cell(1,userData.nImages);
-
-userData.nPontsInterp = 25;
+userData.outputVariableName = outputVariableName;
 userData.needsRefresh = true;
 userData.isprocessing = false;
-
-% userData.clipboard.endo = [];
-% userData.clipboard.endoIntrep = [];
-% userData.clipboard.epi = [];
-% userData.clipboard.endoInterp = [];
 
 userData = redraw(userData);
 
@@ -60,7 +62,10 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
 
     function myKeyPressFcn(this, evnt)
         ud = this.UserData;
+        
         if ud.isprocessing, return, end
+        ud.isprocessing = true; 
+        set(ud.hFig, 'UserData', ud); % needed for the previous line to work
         
         keyPressed = evnt.Key;
         modifierPressed = evnt.Modifier;
@@ -77,12 +82,13 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
             case '1'
                 points = ud.contours.endo{ud.currentImage};
                 if isempty(points)
-                    temp = impoly;
+                    ud.hImPoly = impoly;
                 else
-                    temp = impoly(ud.hAxes, points);
-                    wait(temp);
+                    delete(ud.hEndo)
+                    ud.hImPoly = impoly(ud.hAxes, points);
+                    wait(ud.hImPoly);
                 end
-                points = temp.getPosition;
+                points = ud.hImPoly.getPosition;
                 
                 ud.contours.endo{ud.currentImage} = points;
                 ud.contoursInterp.endo{ud.currentImage} = points;
@@ -91,25 +97,26 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
                     ud.contoursInterp.endo{ud.currentImage} = interparc(userData.nPontsInterp, [points(:,1); points(1,1)], [points(:,2); points(1,2)], 'spline');
                 end
 
-                delete(temp)
+                delete(ud.hImPoly)
                 ud.needsRefresh = true;
                 
             case '2'
                 points = ud.contours.epi{ud.currentImage};
                 if isempty(points)
-                    temp = impoly;
+                    ud.hImPoly = impoly;
                 else
-                    temp = impoly(ud.hAxes, points);
-                    wait(temp);
+                    delete(ud.hEpi)
+                    ud.hImPoly = impoly(ud.hAxes, points);
+                    wait(ud.hImPoly);
                 end
-                points = temp.getPosition;
+                points = ud.hImPoly.getPosition;
                 ud.contours.epi{ud.currentImage} = points;
                 ud.contoursInterp.epi{ud.currentImage} = points;
                 if exist('interparc','file')
                     ud.contoursInterp.epi{ud.currentImage} = interparc(userData.nPontsInterp, [points(:,1); points(1,1)], [points(:,2); points(1,2)], 'spline');
                 end
                 
-                delete(temp)
+                delete(ud.hImPoly)
                 ud.needsRefresh = true;
                 
             case 'c'
@@ -142,6 +149,7 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
         end
         
         ud = redraw(ud);
+        ud.isprocessing = false;
         set(ud.hFig, 'UserData', ud);
              
     end
@@ -149,7 +157,7 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
     function [ud] = redraw(ud)
         
         if ud.needsRefresh
-            set(ud.hImage, 'CData', data(:,:,ud.currentImage));
+            set(ud.hImage, 'CData', ud.data(:,:,ud.currentImage));
             
             % text
             ud.hText.String = sprintf('%d/%d',ud.currentImage,ud.nImages);
@@ -158,18 +166,18 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
             delete(ud.hEndo)
             endo = ud.contoursInterp.endo{ud.currentImage};
             if ~isempty(endo)
-                hold on 
-                ud.hEndo = line([endo(:,1); endo(1,1)], [endo(:,2); endo(1,2)], 'Color', 'red');
-                hold off
+                hold(ud.hAxes, 'on') 
+                ud.hEndo = line(ud.hAxes, [endo(:,1); endo(1,1)], [endo(:,2); endo(1,2)], 'Color', 'red');
+                hold(ud.hAxes, 'off') 
             end
             
             % epi
             delete(ud.hEpi)
             epi = ud.contoursInterp.epi{ud.currentImage};
             if ~isempty(epi)
-                hold on 
-                ud.hEpi = line([epi(:,1); epi(1,1)], [epi(:,2); epi(1,2)], 'Color', 'green');
-                hold off
+                hold(ud.hAxes, 'on') 
+                ud.hEpi = line(ud.hAxes, [epi(:,1); epi(1,1)], [epi(:,2); epi(1,2)], 'Color', 'green');
+                hold(ud.hAxes, 'off') 
             end
             
             ud.needsRefresh = false;
