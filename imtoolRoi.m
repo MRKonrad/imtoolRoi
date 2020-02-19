@@ -1,10 +1,11 @@
-function [hFig] = imtoolRoi(input, outputVariableName)
+function [hFig] = imtoolRoi(input, outputFileName)
 % imtoolRoi imtool extended to 3rd dimension and ROI functionalities.
-%   hFig = imtoolRoi(data, outputVariableName)
+%   hFig = imtoolRoi(data, outputFileName)
 %
 % INPUT:
 %  data - 3d matrix
-%  outputVariableName name of the outpu variable in the base workspace
+%  outputFileName name of file where the results contours are saved (or
+%  appended)
 %
 % OUTPUT:
 %  hFig - figure handle
@@ -16,41 +17,55 @@ function [hFig] = imtoolRoi(input, outputVariableName)
 %  %% prepare matlab path (you can manually add imtoolRoi to matlab path)
 %  addpath(genpath('..\imtoolRoi')) 
 %  %% run
-%  hFig = imtoolRoi(D3D, 'outputSavedHere');
-%  %% use next 2 lines if you want to save output variable to a file
-%  waitfor(hFig); % optional, needed for saving
-%  save('myFile.mat','outputSavedHere')
+%  hFig = imtoolRoi(D3D, 'outputSavedHere.mat');
 %
 %   author: Konrad Werys (konradwerys@gmail.com)
 %
 %   See also imtool
 
-if isstruct(input)
-    userData = input;
-    data = userData.data;
-else
-    userData.data = input;
-    userData.currentImage = 1;
+if ~exist('outputFileName','var')
+    outputFileName = 'outputFileName.mat';
+end
 
+userData.contours = [];
+
+if exist(outputFileName,'file')
+    try 
+        load(outputFileName, 'contours','contoursInterp')
+        userData.contours = contours;
+        userData.contoursInterp = contoursInterp;
+    catch ex
+        disp(ex)
+    end
+end
+
+userData.data = input;
+userData.nImages = size(input, 3);
+userData.currentImage = 1;
+userData.nPontsInterp = 100;
+    
+if isempty(userData.contours)
     userData.contours.endo = cell(1,userData.nImages);
     userData.contours.epi = cell(1,userData.nImages);
     userData.contoursInterp.endo = cell(1,userData.nImages);
     userData.contoursInterp.epi = cell(1,userData.nImages);
-
-    userData.nPontsInterp = 25;
 end
 
-hFig = imtool(data(:,:,1),[]);
+hFig = imtool(userData.data(:,:,1),[],'InitialMagnification','fit');
+set(hFig, 'Position', get(0, 'Screensize'));
 
 userData.hFig = hFig;  
-userData.nImages = size(data,3);
+userData.nImages = size(userData.data,3);
 userData.hImage = findobj(userData.hFig,'Type','image');
 userData.hAxes = findobj(userData.hFig,'Type','axes');
 userData.hEndo = [];
 userData.hEpi = [];
 userData.hImPoly = [];
 userData.hText = text(userData.hAxes, 1, 1, '', 'Color', 'red','verticalalignment', 'top', 'horizontalalignment','left');
-userData.outputVariableName = outputVariableName;
+userData.outputFileName = [];
+if exist('outputFileName','var')
+    userData.outputFileName = outputFileName;
+end
 userData.needsRefresh = true;
 userData.isprocessing = false;
 
@@ -82,19 +97,21 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
             case '1'
                 points = ud.contours.endo{ud.currentImage};
                 if isempty(points)
-                    ud.hImPoly = impoly;
+                    ud.hImPoly = drawpolygon('Color','r');
                 else
                     delete(ud.hEndo)
-                    ud.hImPoly = impoly(ud.hAxes, points);
+                    ud.hImPoly = images.roi.Polygon(ud.hAxes, 'Position', points, 'Color','r');
                     wait(ud.hImPoly);
                 end
-                points = ud.hImPoly.getPosition;
+                points = ud.hImPoly.Position;
                 
                 ud.contours.endo{ud.currentImage} = points;
                 ud.contoursInterp.endo{ud.currentImage} = points;
                 
                 if exist('interparc','file')
-                    ud.contoursInterp.endo{ud.currentImage} = interparc(userData.nPontsInterp, [points(:,1); points(1,1)], [points(:,2); points(1,2)], 'spline');
+                    % interpolate 3x number of points and take the middle points
+                    temp = interparc(userData.nPontsInterp*3, [points(:,1); points(:,1); points(:,1)], [points(:,2); points(:,2); points(:,2);], 'spline');
+                    ud.contoursInterp.endo{ud.currentImage} = temp(userData.nPontsInterp+1:userData.nPontsInterp*2,:);
                 end
 
                 delete(ud.hImPoly)
@@ -103,29 +120,31 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
             case '2'
                 points = ud.contours.epi{ud.currentImage};
                 if isempty(points)
-                    ud.hImPoly = impoly;
+                    ud.hImPoly = drawpolygon('Color','g');
                 else
                     delete(ud.hEpi)
-                    ud.hImPoly = impoly(ud.hAxes, points);
+                    ud.hImPoly = images.roi.Polygon(ud.hAxes, 'Position', points, 'Color','g');
                     wait(ud.hImPoly);
                 end
-                points = ud.hImPoly.getPosition;
+                points = ud.hImPoly.Position;
                 ud.contours.epi{ud.currentImage} = points;
                 ud.contoursInterp.epi{ud.currentImage} = points;
                 if exist('interparc','file')
-                    ud.contoursInterp.epi{ud.currentImage} = interparc(userData.nPontsInterp, [points(:,1); points(1,1)], [points(:,2); points(1,2)], 'spline');
+                    % interpolate 3x number of points and take the middle points
+                    temp = interparc(userData.nPontsInterp*3, [points(:,1); points(:,1); points(:,1)], [points(:,2); points(:,2); points(:,2);], 'spline');
+                    ud.contoursInterp.epi{ud.currentImage} = temp(userData.nPontsInterp+1:userData.nPontsInterp*2,:);
                 end
                 
                 delete(ud.hImPoly)
                 ud.needsRefresh = true;
                 
             case 'c'
-                if strcmp(modifierPressed, 'control') 
+                if strcmp(modifierPressed, 'control') || strcmp(modifierPressed, 'command') 
                     assignin('base', 'imToolRoiClipboard', ud);
                 end
                 
             case 'v'
-                if strcmp(modifierPressed, 'control')
+                if strcmp(modifierPressed, 'control') || strcmp(modifierPressed, 'command') 
                     temp = evalin('base','imToolRoiClipboard');
                     if isfield(temp, 'contours')
                         if isfield(temp.contours, 'endo')
@@ -184,12 +203,27 @@ set(userData.hFig, 'CloseRequestFcn',@myCloseRequestFcn)
         end
     end
 
-    function myCloseRequestFcn(this, evnt)
+    function myCloseRequestFcn(this, ~)
         ud = this.UserData;
-        % save
-        assignin('base', ud.outputVariableName, ud);
+        contours = ud.contours;
+        contoursInterp = ud.contoursInterp;
+
         % clear the clipboard data
         evalin( 'base', 'clear imToolRoiClipboard' )
+        
+        % save
+        if ~isempty(ud.outputFileName)
+            try 
+                if exist(ud.outputFileName,'file')
+                    save(ud.outputFileName,'contours','contoursInterp','-append')
+                else
+                    save(ud.outputFileName,'contours','contoursInterp')
+                end
+            catch ex
+                disp(ex)
+            end
+        end
+        
         disp('Bye bye!')
         delete(ud.hFig)
     end
